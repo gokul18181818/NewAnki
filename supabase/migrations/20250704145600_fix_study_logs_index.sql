@@ -1,0 +1,2 @@
+alter table public.study_logs add column if not exists created_at timestamptz default now();
+create index if not exists idx_study_logs_user_date on public.study_logs (user_id, coalesce(session_date, created_at)); 

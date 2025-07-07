@@ -1,0 +1,1 @@
+GRANT EXECUTE ON FUNCTION public.deck_analytics(uuid) TO authenticated; 
