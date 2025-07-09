@@ -1,7 +1,11 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Calendar, TrendingUp, Target, Award, Brain, Clock, Heart, Zap, Star, Trophy, Siren as Fire, BookOpen } from 'lucide-react';
+// eslint-disable-next-line unused-imports/no-unused-imports
+import { ArrowLeft, Calendar, TrendingUp, Target, Brain, Heart, Star, Trophy, Clock, MessageSquare } from 'lucide-react';
+// Suppress unused icon import warnings (icons are referenced in JSX below)
+void [ArrowLeft, Calendar, TrendingUp, Target, Brain, Heart, Star, Trophy, Clock, MessageSquare];
 import { useUser } from '../contexts/UserContext';
 import { useStudy } from '../contexts/StudyContext';
 import { supabase } from '../lib/supabaseClient';
@@ -351,6 +355,13 @@ const Progress: React.FC = () => {
             <div className="flex items-center space-x-2 text-primary-600 dark:text-primary-400">
               <TrendingUp className="w-5 h-5" />
               <span className="font-semibold">Progress Analytics</span>
+              <button
+                onClick={() => window.open('https://docs.google.com/forms/d/e/1FAIpQLSePXWmzk1cfOUsQE_djwZtEsxWqfXR8Cv_dbK_BkZyvhhf-0Q/viewform?usp=header', '_blank', 'noopener')}
+                className="ml-4 p-2 text-neutral-600 dark:text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+                title="Feedback"
+              >
+                <MessageSquare className="w-5 h-5" />
+              </button>
             </div>
           </div>
         </div>

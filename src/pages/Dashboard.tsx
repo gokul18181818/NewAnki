@@ -17,6 +17,7 @@ import {
   Target,
   Clock,
   Heart,
+  MessageSquare,
   ChevronDown,
   Pencil
 } from 'lucide-react';
@@ -220,6 +221,13 @@ const Dashboard: React.FC = () => {
                 title="Progress"
               >
                 <BarChart3 className="w-6 h-6" />
+              </button>
+              <button
+                onClick={() => window.open('https://docs.google.com/forms/d/e/1FAIpQLSePXWmzk1cfOUsQE_djwZtEsxWqfXR8Cv_dbK_BkZyvhhf-0Q/viewform?usp=header', '_blank', 'noopener')}
+                className="p-2 text-neutral-600 dark:text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+                title="Feedback"
+              >
+                <MessageSquare className="w-6 h-6" />
               </button>
               <button
                 onClick={() => navigate('/settings')}
