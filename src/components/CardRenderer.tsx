@@ -26,6 +26,11 @@ const CardRenderer: React.FC<CardRendererProps> = ({
   const [hiddenOcclusions, setHiddenOcclusions] = useState<string[]>([]);
   const audioRef = useRef<HTMLAudioElement>(null);
 
+  // Reset currentCloze when card changes
+  useEffect(() => {
+    setCurrentCloze(0);
+  }, [card.id]);
+
   const renderBasicCard = () => {
     const basicCard = card as any; // Type assertion for basic card
     
@@ -136,12 +141,46 @@ const CardRenderer: React.FC<CardRendererProps> = ({
     );
   };
 
+  // Helper function to parse cloze text and extract cloze deletions
+  const parseClozeText = (text: string) => {
+    const clozePattern = /\{\{c(\d+)::([^}]+)\}\}/g;
+    const clozes: { id: string; text: string; hint?: string }[] = [];
+    let match;
+    
+    while ((match = clozePattern.exec(text)) !== null) {
+      const clozeNumber = match[1];
+      const clozeText = match[2];
+      
+      // Handle hints if they exist (e.g., {{c1::answer::hint}})
+      const [answer, hint] = clozeText.split('::');
+      
+      // Only add if not already exists (avoid duplicates)
+      if (!clozes.find(c => c.id === clozeNumber)) {
+        clozes.push({
+          id: clozeNumber,
+          text: answer,
+          hint: hint || undefined
+        });
+      }
+    }
+    
+    return clozes.sort((a, b) => parseInt(a.id) - parseInt(b.id));
+  };
+
   const renderClozeCard = () => {
-    const clozeCard = card as ClozeCard;
-    const currentClozeData = clozeCard.clozes[currentCloze];
+    // Parse the cloze text from the front field
+    const clozeText = card.front;
+    const clozes = parseClozeText(clozeText);
+    
+    // If no clozes found, fallback to basic card
+    if (clozes.length === 0) {
+      return renderBasicCard();
+    }
+    
+    const currentClozeData = clozes[currentCloze];
     
     const renderClozeText = () => {
-      let text = clozeCard.text;
+      let text = clozeText;
       
       // Replace current cloze with blank or answer
       const currentPattern = new RegExp(`{{c${currentCloze + 1}::(.*?)}}`, 'g');
@@ -152,7 +191,7 @@ const CardRenderer: React.FC<CardRendererProps> = ({
       }
       
       // Replace other clozes with their answers
-      for (let i = 0; i < clozeCard.clozes.length; i++) {
+      for (let i = 0; i < clozes.length; i++) {
         if (i !== currentCloze) {
           const pattern = new RegExp(`{{c${i + 1}::(.*?)}}`, 'g');
           text = text.replace(pattern, '$1');
@@ -168,9 +207,9 @@ const CardRenderer: React.FC<CardRendererProps> = ({
           <div dangerouslySetInnerHTML={renderClozeText()} />
         </div>
 
-        {clozeCard.clozes.length > 1 && (
+        {clozes.length > 1 && (
           <div className="flex justify-center space-x-2 mb-6">
-            {clozeCard.clozes.map((_, index) => (
+            {clozes.map((_, index) => (
               <button
                 key={index}
                 onClick={() => setCurrentCloze(index)}
@@ -195,7 +234,7 @@ const CardRenderer: React.FC<CardRendererProps> = ({
           </button>
         )}
 
-        {showAnswer && currentClozeData.hint && (
+        {showAnswer && currentClozeData?.hint && (
           <div className="bg-primary-50 dark:bg-primary-900/20 rounded-xl p-4 mt-4">
             <p className="text-primary-700 dark:text-primary-300 flex items-center justify-center">
               <HelpCircle className="w-5 h-5 mr-2" />

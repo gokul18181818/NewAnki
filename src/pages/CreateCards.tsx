@@ -378,7 +378,46 @@ const CreateCards: React.FC = () => {
         reviewCount: 0,
       });
 
-      navigate('/dashboard');
+      // Reset form for next card
+      setManualCardData({
+        type: 'basic' as CardType,
+        front: '',
+        back: '',
+        tags: '',
+        hint: '',
+        // Cloze-specific
+        clozeText: '',
+        // Type-in specific
+        question: '',
+        answer: '',
+        acceptableAnswers: '',
+        caseSensitive: false,
+        // Multiple choice specific
+        mcQuestion: '',
+        options: ['', '', '', ''],
+        correctAnswer: 0,
+        explanation: '',
+        // Audio specific
+        audioQuestion: '',
+        audioAnswer: '',
+        transcript: '',
+        // Image occlusion specific
+        imageUrl: '',
+        imageQuestion: '',
+        uploadedImageFile: null as File | null,
+        occlusions: [] as Array<{
+          id: string;
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+          label: string;
+          hint?: string;
+          color?: string;
+        }>,
+      });
+
+      // Stay on the manual creation page for next card
     } catch (error) {
       console.error('Failed to save card:', error);
       alert(`Failed to save card: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -558,6 +597,38 @@ const CreateCards: React.FC = () => {
       } else {
         alert('Failed to upload image. Please try again.');
       }
+    }
+  };
+
+  const handleDeleteGeneratedCard = (index: number) => {
+    setGeneratedCards(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAcceptGeneratedCard = async (index: number) => {
+    if (!targetDeckId) {
+      console.error('No deck selected for saving cards');
+      return;
+    }
+
+    const card = generatedCards[index];
+    try {
+      await addCard({
+        deckId: targetDeckId,
+        front: card.front,
+        back: card.back,
+        tags: [],
+        difficulty: 0,
+        lastStudied: null,
+        nextDue: new Date().toISOString(),
+        interval: 1,
+        easeFactor: 2.5,
+        reviewCount: 0,
+      });
+
+      // Remove from local list after successful save so the user can work through the rest
+      setGeneratedCards(prev => prev.filter((_, i) => i !== index));
+    } catch (err) {
+      console.error('Failed to save card:', err);
     }
   };
 
@@ -985,13 +1056,26 @@ const CreateCards: React.FC = () => {
               </div>
             </div>
             <div className="flex justify-end space-x-3">
-              <button className="px-4 py-2 bg-neutral-100 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-600 transition-colors">
+              <button
+                onClick={() => handleDeleteGeneratedCard(index)}
+                className="px-4 py-2 bg-neutral-100 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-600 transition-colors"
+              >
                 Delete
               </button>
-              <button className="px-4 py-2 bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 rounded-lg hover:bg-primary-200 dark:hover:bg-primary-900/50 transition-colors">
+              <button
+                className="px-4 py-2 bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 rounded-lg hover:bg-primary-200 dark:hover:bg-primary-900/50 transition-colors"
+                onClick={() => {
+                  // textarea is already editable; focus question box for convenience
+                  const el = document.querySelectorAll<HTMLTextAreaElement>('textarea')[index * 2];
+                  el?.focus();
+                }}
+              >
                 Edit
               </button>
-              <button className="px-4 py-2 bg-success-100 dark:bg-success-900/30 text-success-600 dark:text-success-400 rounded-lg hover:bg-success-200 dark:hover:bg-success-900/50 transition-colors">
+              <button
+                onClick={() => handleAcceptGeneratedCard(index)}
+                className="px-4 py-2 bg-success-100 dark:bg-success-900/30 text-success-600 dark:text-success-400 rounded-lg hover:bg-success-200 dark:hover:bg-success-900/50 transition-colors"
+              >
                 Good as-is
               </button>
             </div>

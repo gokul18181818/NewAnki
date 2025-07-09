@@ -1110,7 +1110,7 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       }
 
       const { data, error } = await supabase.rpc('get_study_calendar_data', {
-        p_days_back: daysBack,
+        p_user_id: session.user.id,
       });
 
       if (error) {
@@ -1122,9 +1122,9 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return (data as any[]).map(row => ({
         date: row.study_date,
         cardsStudied: row.cards_studied,
-        studySessions: row.study_sessions,
+        studySessions: row.sessions_count,
         totalTimeMinutes: row.total_time_minutes,
-        avgRetention: row.avg_retention,
+        avgRetention: 0, // Will be calculated from other data if needed
         studied: row.cards_studied > 0,
       }));
     } catch (error) {
@@ -1146,7 +1146,7 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         };
       }
 
-      const { data, error } = await supabase.rpc('get_streak_info');
+      const { data, error } = await supabase.rpc('get_streak_info', { p_user_id: session.user.id });
 
       if (error) {
         console.error('Error fetching streak info:', error);

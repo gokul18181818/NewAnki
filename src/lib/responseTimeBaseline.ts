@@ -181,7 +181,7 @@ export class ResponseTimeBaselineEngine {
         sample_size: baseline.sampleSize,
         last_updated: baseline.lastUpdated.toISOString(),
         by_difficulty: baseline.byDifficulty
-      });
+      }, { onConflict: 'user_id' });
 
     if (error) {
       throw error;

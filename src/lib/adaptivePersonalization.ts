@@ -59,10 +59,28 @@ export class AdaptivePersonalizationEngine {
 
       // Create new profile from historical data
       const profile = await this.createProfileFromHistory();
-      await this.saveProfile(profile);
       
-      this.profile = profile;
-      return profile;
+      // Use upsert to handle concurrent creation attempts
+      try {
+        await this.saveProfile(profile);
+        this.profile = profile;
+        return profile;
+      } catch (upsertError: any) {
+        // If upsert fails (409 conflict), try to fetch the existing profile again
+        if (upsertError.code === '23505' || upsertError.message?.includes('duplicate') || upsertError.message?.includes('409')) {
+          const { data: retryProfile } = await supabase
+            .from('user_learning_profiles')
+            .select('*')
+            .eq('user_id', this.userId)
+            .single();
+          
+          if (retryProfile) {
+            this.profile = this.transformDbProfile(retryProfile);
+            return this.profile;
+          }
+        }
+        throw upsertError;
+      }
     } catch (error) {
       console.error('Error initializing user profile:', error);
       // Return default profile
@@ -354,28 +372,29 @@ export class AdaptivePersonalizationEngine {
   }
 
   private async saveProfile(profile: UserLearningProfile): Promise<void> {
-    try {
-      await supabase
-        .from('user_learning_profiles')
-        .upsert({
-          user_id: profile.userId,
-          total_cards_studied: profile.totalCardsStudied,
-          average_session_length: profile.averageSessionLength,
-          average_cards_per_session: profile.averageCardsPerSession,
-          average_retention_rate: profile.averageRetentionRate,
-          preferred_study_times: profile.preferredStudyTimes,
-          fatigue_threshold: profile.fatigueThreshold,
-          optimal_break_interval: profile.optimalBreakInterval,
-          optimal_break_duration: profile.optimalBreakDuration,
-          celebration_frequency: profile.celebrationFrequency,
-          milestone_progression: profile.milestoneProgression,
-          study_velocity: profile.studyVelocity,
-          consistency_score: profile.consistencyScore,
-          difficulty_tolerance: profile.difficultyTolerance,
-          updated_at: new Date().toISOString()
-        });
-    } catch (error) {
+    const { error } = await supabase
+      .from('user_learning_profiles')
+      .upsert({
+        user_id: profile.userId,
+        total_cards_studied: profile.totalCardsStudied,
+        average_session_length: profile.averageSessionLength,
+        average_cards_per_session: profile.averageCardsPerSession,
+        average_retention_rate: profile.averageRetentionRate,
+        preferred_study_times: profile.preferredStudyTimes,
+        fatigue_threshold: profile.fatigueThreshold,
+        optimal_break_interval: profile.optimalBreakInterval,
+        optimal_break_duration: profile.optimalBreakDuration,
+        celebration_frequency: profile.celebrationFrequency,
+        milestone_progression: profile.milestoneProgression,
+        study_velocity: profile.studyVelocity,
+        consistency_score: profile.consistencyScore,
+        difficulty_tolerance: profile.difficultyTolerance,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id' });
+
+    if (error) {
       console.error('Error saving profile:', error);
+      throw error;
     }
   }
 

@@ -25,6 +25,7 @@ import { useStudy } from '../contexts/StudyContext';
 import ThemeToggle from '../components/ThemeToggle';
 import { supabase } from '../lib/supabaseClient';
 import { getPersonalizedTip } from '../lib/dynamicContent';
+import AchievementsList from '../components/AchievementsList';
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -161,7 +162,14 @@ const Dashboard: React.FC = () => {
   const currentMonth = new Date();
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
-  const monthDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  // Build array of days with leading blanks so that the 1st of the month
+  // aligns with the correct weekday column (0 = Sunday).
+  const monthStartDay = monthStart.getDay(); // 0-6, Sunday = 0
+  const monthDaysUnpadded = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  const monthDays = [
+    ...Array(monthStartDay).fill(null), // placeholders for previous month
+    ...monthDaysUnpadded,
+  ];
 
   const getTimeGreeting = () => {
     const hour = new Date().getHours();
@@ -276,7 +284,10 @@ const Dashboard: React.FC = () => {
               ))}
             </div>
             <div className="grid grid-cols-7 gap-1">
-              {monthDays.map(date => {
+              {monthDays.map((date, idx) => {
+                if (!date) {
+                  return <div key={`blank-${idx}`} className="aspect-square" />; // empty cell
+                }
                 const status = getDayStatus(date);
                 return (
                   <div
@@ -328,7 +339,7 @@ const Dashboard: React.FC = () => {
                       'bg-success-500'
                     }`} />
                     <div>
-                      <p className="font-medium text-neutral-800 dark:text-neutral-200">{deck.name}</p>
+                      <p className="font-medium text-neutral-800 dark:text-neutral-200 max-w-[140px] truncate">{deck.name}</p>
                       <p className="text-xs text-neutral-600 dark:text-neutral-400">{deck.dueCount} due</p>
                     </div>
                   </div>
@@ -696,6 +707,9 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
         </motion.div>
+
+        {/* Achievements */}
+        <AchievementsList />
       </main>
     </div>
   );
