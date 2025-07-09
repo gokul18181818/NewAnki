@@ -8,7 +8,21 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "test:auth": "playwright test auth.spec.ts",
+    "test:import": "playwright test anki-import.spec.ts",
+    "test:study": "playwright test study-session.spec.ts",
+    "test:burnout": "playwright test anti-burnout.spec.ts",
+    "test:adaptive": "playwright test adaptive-personalization.spec.ts",
+    "test:content": "playwright test user-dynamic-content.spec.ts",
+    "test:database": "playwright test database-integration.spec.ts",
+    "test:errors": "playwright test error-handling.spec.ts",
+    "test:performance": "playwright test performance.spec.ts",
+    "test:report": "playwright show-report",
+    "test:install": "playwright install"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.3",
@@ -27,6 +41,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
+    "@playwright/test": "^1.53.2",
     "@testing-library/jest-dom": "^6.4.4",
     "@testing-library/react": "^14.2.1",
     "@testing-library/user-event": "^14.4.3",

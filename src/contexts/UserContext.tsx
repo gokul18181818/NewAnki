@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 
 interface Preferences {
+  timeZone?: string;
   showProgressPopups?: boolean;
   smartBreakSuggestions?: boolean;
   emojiCelebrations?: boolean;
@@ -22,6 +23,8 @@ interface Preferences {
 }
 
 interface User extends SupabaseUser {
+  /** Optional display name pulled from user_metadata or profile settings. */
+  name?: string;
   preferences?: Preferences;
   studyGoal?: string;
   streak?: number;
@@ -53,50 +56,106 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Load user preferences from Supabase
   const loadUserPreferences = async (userId: string) => {
+    console.log('🔍 Loading user preferences with shorter timeout...');
+    
     try {
-      const { data, error } = await supabase
+      // Use shorter timeout and fallback to defaults
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Query timeout')), 3000); // 3 second timeout
+      });
+      
+      const queryPromise = supabase
         .from('user_preferences')
         .select('preferences')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
+      
+      const { data, error } = await Promise.race([queryPromise, timeoutPromise]) as any;
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
-        console.error('Error loading user preferences:', error);
+      if (error) {
+        console.log('⚠️ Preferences query failed, using defaults:', error.message);
         return {};
       }
 
+      console.log('✅ Preferences loaded successfully');
       return data?.preferences || {};
     } catch (error) {
-      console.error('Failed to load user preferences:', error);
-      return {};
+      console.log('⚠️ Preferences loading timed out, using defaults');
+      // Return default preferences without blocking login
+      return {
+        showProgressPopups: true,
+        smartBreakSuggestions: true,
+        emojiCelebrations: true,
+        soundEffects: false,
+        dailyReminders: true,
+        reminderTime: '09:00',
+        sessionLength: 'auto',
+        customSessionLength: 25,
+        newCardsPerDay: 20,
+        maxDailyCards: 200,
+        breakInterval: 25,
+        breakDuration: 15,
+        adaptiveBreaks: true,
+        fontSize: 16,
+        animations: true,
+      };
     }
   };
 
   // Listen to auth changes
   useEffect(() => {
     const initializeUser = async () => {
+      console.log('🚀 Initializing user session...');
       const { data } = await supabase.auth.getSession();
+      console.log('📋 Session data:', data.session ? 'Found session' : 'No session');
+      
       if (data.session?.user) {
-        const preferences = await loadUserPreferences(data.session.user.id);
-        setUser({
-          ...data.session.user,
-          preferences
-        });
+        console.log('👤 User found:', data.session.user.email);
+        try {
+          const preferences = await loadUserPreferences(data.session.user.id);
+          console.log('✅ Setting user with preferences');
+          setUser({
+            ...data.session.user,
+            preferences
+          });
+        } catch (error) {
+          console.error('❌ Failed to load preferences, using defaults:', error);
+          // Use default preferences if loading fails
+          setUser({
+            ...data.session.user,
+            preferences: {}
+          });
+        }
       } else {
+        console.log('🚫 No user session found');
         setUser(null);
       }
     };
 
     initializeUser();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔄 Auth state changed:', event, session ? 'Session exists' : 'No session');
+      
       if (session?.user) {
-        const preferences = await loadUserPreferences(session.user.id);
-        setUser({
-          ...session.user,
-          preferences
-        });
+        console.log('👤 Auth change - User:', session.user.email);
+        try {
+          const preferences = await loadUserPreferences(session.user.id);
+          console.log('✅ Auth change - Setting user with preferences');
+          setUser({
+            ...session.user,
+            preferences
+          });
+        } catch (error) {
+          console.error('❌ Auth change - Failed to load preferences:', error);
+          // Use default preferences if loading fails
+          setUser({
+            ...session.user,
+            preferences: {}
+          });
+        }
       } else {
+        console.log('🚫 Auth change - No user, setting null');
         setUser(null);
       }
     });
@@ -107,10 +166,13 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const login = async (email: string, password: string) => {
+    console.log('🔐 Attempting login for:', email);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
+      console.error('❌ Login failed:', error);
       throw error;
     }
+    console.log('✅ Login successful, auth state change should trigger...');
   };
 
   const logout = async () => {

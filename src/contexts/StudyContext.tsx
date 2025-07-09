@@ -212,19 +212,85 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [currentDeck, setCurrentDeck] = useState<Deck | null>(null);
   const [currentCard, setCurrentCard] = useState<Card | null>(null);
   const [studyStats, setStudyStats] = useState<StudyStats>({
-    totalCards: 847,
-    studiedToday: 43,
-    emojiBreakdown: {
-      '😞': 12,
-      '😐': 23,
-      '😊': 168,
-      '😁': 45,
-    },
+    totalCards: 0,
+    studiedToday: 0,
+    emojiBreakdown: { '😞': 0, '😐': 0, '😊': 0, '😁': 0 },
     weeklyStats: [],
-    streakDays: 8,
-    currentStreak: 8,
-    longestStreak: 12,
+    streakDays: 0,
+    currentStreak: 0,
+    longestStreak: 0,
   });
+
+  // Load real-time statistics whenever decks or user change
+  useEffect(() => {
+    const loadStats = async () => {
+      if (!user) return;
+
+      // ------------- Total cards -------------
+      const totalCards = decks.reduce((sum, d) => sum + d.cardCount, 0);
+
+      // ------------- Cards studied today & emoji breakdown -------------
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const tomorrowStart = new Date(todayStart);
+      tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+
+      const { data: reviewsToday } = await supabase
+        .from('reviews')
+        .select('rating')
+        .eq('owner_id', user.id)
+        .gte('reviewed_at', todayStart.toISOString())
+        .lt('reviewed_at', tomorrowStart.toISOString());
+
+      const emojiMap: { '😞': number; '😐': number; '😊': number; '😁': number } = {
+        '😞': 0, '😐': 0, '😊': 0, '😁': 0,
+      };
+      (reviewsToday ?? []).forEach(r => {
+        const emoji = (['😞', '😐', '😊', '😁'][(r as any).rating] ?? '😞') as keyof typeof emojiMap;
+        emojiMap[emoji] += 1;
+      });
+
+      // ------------- Weekly stats (last 7 days) -------------
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 6);
+
+      const { data: recentLogs } = await supabase
+        .from('study_logs')
+        .select('session_date,cards_studied,avg_response_time_ms,rating')
+        .eq('user_id', user.id)
+        .gte('session_date', weekAgo.toISOString());
+
+      const weekStatsMap: { [date: string]: { cards: number; positives: number; total: number } } = {};
+      (recentLogs ?? []).forEach(log => {
+        const day = new Date(log.session_date).toLocaleDateString('en-CA');
+        if (!weekStatsMap[day]) weekStatsMap[day] = { cards: 0, positives: 0, total: 0 };
+        weekStatsMap[day].cards += log.cards_studied ?? 0;
+        weekStatsMap[day].total += 1;
+        if ((log.rating ?? 0) >= 2) weekStatsMap[day].positives += 1;
+      });
+
+      const weeklyStats = Object.entries(weekStatsMap).map(([date, vals]) => ({
+        date,
+        cards: vals.cards,
+        positivityRate: vals.total ? Math.round((vals.positives / vals.total) * 100) : 0,
+      })).sort((a,b)=> new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      // ------------- Streak info -------------
+      const streak = await getStreakInfo();
+
+      setStudyStats({
+        totalCards,
+        studiedToday: reviewsToday?.length ?? 0,
+        emojiBreakdown: emojiMap,
+        weeklyStats,
+        streakDays: streak.currentStreak,
+        currentStreak: streak.currentStreak,
+        longestStreak: streak.longestStreak,
+      });
+    };
+
+    loadStats();
+  }, [user, decks]);
 
   const rateCard = async (cardId: string, rating: EmojiRating) => {
     const ratingMap: Record<EmojiRating, number> = { '😞': 0, '😐': 1, '😊': 2, '😁': 3 };
@@ -288,8 +354,8 @@ export const StudyProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       .single();
 
     if (error) {
-      console.error(error);
-      return;
+      console.error('Card save failed:', error);
+      throw new Error(`Failed to save card: ${error.message}`);
     }
 
     const newCard: Card = {

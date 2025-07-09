@@ -11,13 +11,14 @@ import StudySession from './pages/StudySession';
 import SessionResults from './pages/SessionResults';
 import CreateCards from './pages/CreateCards';
 import Progress from './pages/Progress';
+import EditCard from './pages/EditCard';
 import Settings from './pages/Settings';
 import DeckDetails from './pages/DeckDetails';
 import { UserProvider } from './contexts/UserContext';
 import { StudyProvider } from './contexts/StudyContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 
-const AnalyticsPage = lazy(() => import('./pages/Analytics'));
+
 
 function App() {
   return (
@@ -40,11 +41,7 @@ function App() {
                   <Route path="/create" element={<CreateCards />} />
                   <Route path="/progress" element={<Progress />} />
                   <Route path="/settings" element={<Settings />} />
-                  <Route path="/analytics" element={
-                    <Suspense fallback={<div className="p-4">Loading…</div>}>
-                      <AnalyticsPage />
-                    </Suspense>
-                  } />
+                  <Route path="/deck/:deckId/card/:cardId/edit" element={<EditCard />} />
                 </Routes>
               </AnimatePresence>
             </div>

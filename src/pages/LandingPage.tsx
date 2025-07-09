@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { Brain, Sparkles, Heart, Calendar, ArrowRight, Play, Star } from 'lucide-react';
+import { Brain, Sparkles, Heart, Calendar, ArrowRight } from 'lucide-react';
 
 const LandingPage: React.FC = () => {
   const navigate = useNavigate();
@@ -182,48 +182,6 @@ const LandingPage: React.FC = () => {
         </div>
       </motion.section>
 
-      {/* Social Proof */}
-      <motion.section
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, delay: 0.5 }}
-        className="px-4 py-16 text-center"
-      >
-        <div className="max-w-4xl mx-auto">
-          <div className="inline-flex items-center space-x-2 bg-white/80 backdrop-blur-sm rounded-full px-6 py-3 border border-primary-200 shadow-lg mb-8">
-            <Star className="w-5 h-5 text-warning-500 fill-current" />
-            <span className="text-sm font-medium text-primary-700">
-              Join 10,000+ learners who study smarter
-            </span>
-          </div>
-
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-8 border border-primary-100 shadow-lg max-w-2xl mx-auto">
-            <p className="text-xl text-neutral-700 mb-6 italic">
-              "Finally, flashcards that don't feel like work. StudyBuddy made studying for medical school
-              actually enjoyable. The emoji system just clicks!"
-            </p>
-            <div className="flex items-center justify-center space-x-4">
-              <div className="w-12 h-12 bg-gradient-to-r from-primary-500 to-secondary-500 rounded-full flex items-center justify-center">
-                <span className="text-white font-semibold">S</span>
-              </div>
-              <div className="text-left">
-                <p className="font-semibold text-neutral-800">Sarah Martinez</p>
-                <p className="text-sm text-neutral-600">Medical Student, Johns Hopkins</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-12 flex flex-col sm:flex-row gap-4 justify-center">
-            <button className="group px-6 py-3 bg-white/80 backdrop-blur-sm text-primary-600 rounded-xl border border-primary-200 hover:border-primary-300 transition-all duration-200 transform hover:scale-105 font-medium shadow-lg hover:shadow-xl flex items-center justify-center space-x-2">
-              <Play className="w-5 h-5" />
-              <span>Watch Demo</span>
-            </button>
-            <button className="px-6 py-3 bg-white/80 backdrop-blur-sm text-secondary-600 rounded-xl border border-secondary-200 hover:border-secondary-300 transition-all duration-200 transform hover:scale-105 font-medium shadow-lg hover:shadow-xl">
-              See How It Works
-            </button>
-          </div>
-        </div>
-      </motion.section>
 
       {/* Background Elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">

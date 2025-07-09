@@ -1,0 +1,42 @@
+# Page snapshot
+
+```yaml
+- banner:
+  - button:
+    - img
+  - heading "Settings" [level=1]
+  - button "Save Changes":
+    - img
+    - text: Save Changes
+- main:
+  - navigation:
+    - button "Profile":
+      - img
+      - text: Profile
+    - button "Study":
+      - img
+      - text: Study
+    - button "Appearance":
+      - img
+      - text: Appearance
+    - button "Subscription":
+      - img
+      - text: Subscription
+  - text: Name
+  - textbox
+  - text: Email
+  - textbox
+  - text: Study Goal
+  - combobox:
+    - option "Medical School" [selected]
+    - option "Languages"
+    - option "Professional"
+    - option "Academic"
+    - option "Certification"
+  - text: Time Zone
+  - combobox:
+    - option "EST (Eastern)" [selected]
+    - option "CST (Central)"
+    - option "MST (Mountain)"
+    - option "PST (Pacific)"
+```

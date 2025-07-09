@@ -5,6 +5,7 @@ import { ArrowLeft, Calendar, TrendingUp, Target, Award, Brain, Clock, Heart, Za
 import { useUser } from '../contexts/UserContext';
 import { useStudy } from '../contexts/StudyContext';
 import { supabase } from '../lib/supabaseClient';
+import { getPersonalizedTip, getUserAchievements, checkAndAwardAchievements, getRelativeTimeString, type Achievement } from '../lib/dynamicContent';
 
 interface StudySession {
   id: string;
@@ -37,6 +38,8 @@ const Progress: React.FC = () => {
   const { studyStats, decks } = useStudy();
   const [studySessions, setStudySessions] = useState<StudySession[]>([]);
   const [loading, setLoading] = useState(true);
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [dynamicTip, setDynamicTip] = useState<string>('');
 
   // Fetch real study session data
   useEffect(() => {
@@ -57,6 +60,17 @@ const Progress: React.FC = () => {
         }
 
         setStudySessions(data || []);
+        
+        // Load achievements and dynamic content
+        const [userAchievements, newAchievements, tip] = await Promise.all([
+          getUserAchievements(user.id),
+          checkAndAwardAchievements(user.id),
+          getPersonalizedTip(user.id)
+        ]);
+        
+        setAchievements([...newAchievements, ...userAchievements]);
+        setDynamicTip(tip.content);
+        
       } catch (error) {
         console.error('Error fetching study sessions:', error);
       } finally {
@@ -66,6 +80,40 @@ const Progress: React.FC = () => {
 
     fetchStudySessions();
   }, [user]);
+
+  // Helper function to calculate best study time
+  const calculateBestStudyTime = async (sessions: StudySession[]): Promise<string> => {
+    if (!sessions.length) return '9:00 AM';
+    
+    // Group sessions by hour and calculate average retention
+    const hourlyStats: { [hour: number]: { totalRetention: number; count: number } } = {};
+    
+    sessions.forEach(session => {
+      const hour = new Date(session.session_date).getHours();
+      if (!hourlyStats[hour]) {
+        hourlyStats[hour] = { totalRetention: 0, count: 0 };
+      }
+      hourlyStats[hour].totalRetention += session.retention_rate;
+      hourlyStats[hour].count += 1;
+    });
+    
+    // Find hour with best average retention
+    let bestHour = 9; // default
+    let bestRetention = 0;
+    
+    Object.entries(hourlyStats).forEach(([hour, stats]) => {
+      const avgRetention = stats.totalRetention / stats.count;
+      if (avgRetention > bestRetention && stats.count >= 2) { // Need at least 2 sessions
+        bestRetention = avgRetention;
+        bestHour = parseInt(hour);
+      }
+    });
+    
+    // Format hour as readable time
+    const period = bestHour < 12 ? 'AM' : 'PM';
+    const displayHour = bestHour === 0 ? 12 : bestHour > 12 ? bestHour - 12 : bestHour;
+    return `${displayHour}:00 ${period}`;
+  };
 
   // Calculate real analytics
   const analytics = useMemo(() => {
@@ -188,7 +236,7 @@ const Progress: React.FC = () => {
       weeklyData,
       totalEmojis,
       insights: {
-        bestTime: '9:00 AM', // TODO: Calculate from session times
+        bestTime: '9:00 AM', // Will be calculated separately
         avgSession: avgSessionTime,
         completionRate: avgRetention,
         improvement
@@ -196,11 +244,23 @@ const Progress: React.FC = () => {
     };
   }, [studySessions]);
 
+  // Separate effect for calculating best study time (async)
+  const [bestStudyTime, setBestStudyTime] = useState('9:00 AM');
+  useEffect(() => {
+    const calculateTime = async () => {
+      const time = await calculateBestStudyTime(studySessions);
+      setBestStudyTime(time);
+    };
+    if (studySessions.length > 0) {
+      calculateTime();
+    }
+  }, [studySessions]);
+
   const learningInsights = [
     {
       icon: Clock,
       title: 'Best study time',
-      value: analytics.insights.bestTime,
+      value: bestStudyTime,
       detail: `(${analytics.insights.completionRate}% retention)`,
       color: 'from-primary-500 to-primary-600',
     },
@@ -227,26 +287,6 @@ const Progress: React.FC = () => {
     },
   ];
 
-  const achievements = [
-    {
-      icon: '🏆',
-      title: '7-day streak master',
-      description: 'Studied for 7 consecutive days',
-      earned: '2 days ago',
-    },
-    {
-      icon: '🌟',
-      title: '100 cards mastered in anatomy',
-      description: 'Reached 100 mastered cards in one deck',
-      earned: '5 days ago',
-    },
-    {
-      icon: '🔥',
-      title: 'Spanish vocabulary speedster',
-      description: 'Completed 50 cards in under 10 minutes',
-      earned: '1 week ago',
-    },
-  ];
 
   const goals = useMemo(() => {
     const positiveEmojis = analytics.totalEmojis['😊'] + analytics.totalEmojis['😁'];
@@ -324,34 +364,34 @@ const Progress: React.FC = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.1 }}
-            className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-primary-100 shadow-lg"
+            className="bg-white/80 dark:bg-neutral-800/80 backdrop-blur-sm rounded-2xl p-6 border border-primary-100 dark:border-neutral-700 shadow-lg"
           >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-neutral-800">This Month</h3>
+              <h3 className="text-lg font-semibold text-neutral-800 dark:text-neutral-200">This Month</h3>
               <Calendar className="w-6 h-6 text-primary-500" />
             </div>
             <div className="space-y-3">
               <div className="flex justify-between">
-                <span className="text-neutral-600">Study days</span>
-                <span className="font-bold text-primary-600">{analytics.monthlyStats.studyDays}</span>
+                <span className="text-neutral-600 dark:text-neutral-400">Study days</span>
+                <span className="font-bold text-primary-600 dark:text-primary-400">{analytics.monthlyStats.studyDays}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral-600">Total cards</span>
-                <span className="font-bold text-secondary-600">{analytics.monthlyStats.totalCards}</span>
+                <span className="text-neutral-600 dark:text-neutral-400">Total cards</span>
+                <span className="font-bold text-secondary-600 dark:text-secondary-400">{analytics.monthlyStats.totalCards}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral-600">New mastered</span>
-                <span className="font-bold text-success-600">{analytics.monthlyStats.newMastered}</span>
+                <span className="text-neutral-600 dark:text-neutral-400">New mastered</span>
+                <span className="font-bold text-success-600 dark:text-success-400">{analytics.monthlyStats.newMastered}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral-600">Streak</span>
-                <span className="font-bold text-warning-600">{analytics.monthlyStats.streak} days</span>
+                <span className="text-neutral-600 dark:text-neutral-400">Streak</span>
+                <span className="font-bold text-warning-600 dark:text-warning-400">{analytics.monthlyStats.streak} days</span>
               </div>
             </div>
             <div className="mt-4 text-center">
-              <div className="inline-flex items-center px-3 py-1 bg-success-50 rounded-full">
-                <Trophy className="w-4 h-4 text-success-600 mr-1" />
-                <span className="text-sm font-medium text-success-700">Amazing!</span>
+              <div className="inline-flex items-center px-3 py-1 bg-success-50 dark:bg-success-900/20 rounded-full">
+                <Trophy className="w-4 h-4 text-success-600 dark:text-success-400 mr-1" />
+                <span className="text-sm font-medium text-success-700 dark:text-success-300">Amazing!</span>
               </div>
             </div>
           </motion.div>
@@ -360,20 +400,20 @@ const Progress: React.FC = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-secondary-100 shadow-lg"
+            className="bg-white/80 dark:bg-neutral-800/80 backdrop-blur-sm rounded-2xl p-6 border border-secondary-100 dark:border-neutral-700 shadow-lg"
           >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-neutral-800">Emoji Breakdown</h3>
+              <h3 className="text-lg font-semibold text-neutral-800 dark:text-neutral-200">Emoji Breakdown</h3>
               <Heart className="w-6 h-6 text-secondary-500" />
             </div>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <span className="text-xl">😊</span>
-                  <span className="text-neutral-600">Happy</span>
+                  <span className="text-neutral-600 dark:text-neutral-400">Happy</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <div className="w-16 bg-neutral-200 rounded-full h-2">
+                  <div className="w-16 bg-neutral-200 dark:bg-neutral-700 rounded-full h-2">
                     <div 
                       className="bg-primary-500 h-2 rounded-full"
                       style={{ 
@@ -383,16 +423,16 @@ const Progress: React.FC = () => {
                       }}
                     />
                   </div>
-                  <span className="text-sm font-medium">{analytics.totalEmojis['😊']}</span>
+                  <span className="text-sm font-medium text-neutral-800 dark:text-neutral-300">{analytics.totalEmojis['😊']}</span>
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <span className="text-xl">😁</span>
-                  <span className="text-neutral-600">Very happy</span>
+                  <span className="text-neutral-600 dark:text-neutral-400">Very happy</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <div className="w-16 bg-neutral-200 rounded-full h-2">
+                  <div className="w-16 bg-neutral-200 dark:bg-neutral-700 rounded-full h-2">
                     <div 
                       className="bg-success-500 h-2 rounded-full"
                       style={{ 
@@ -402,16 +442,16 @@ const Progress: React.FC = () => {
                       }}
                     />
                   </div>
-                  <span className="text-sm font-medium">{analytics.totalEmojis['😁']}</span>
+                  <span className="text-sm font-medium text-neutral-800 dark:text-neutral-300">{analytics.totalEmojis['😁']}</span>
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <span className="text-xl">😐</span>
-                  <span className="text-neutral-600">Neutral</span>
+                  <span className="text-neutral-600 dark:text-neutral-400">Neutral</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <div className="w-16 bg-neutral-200 rounded-full h-2">
+                  <div className="w-16 bg-neutral-200 dark:bg-neutral-700 rounded-full h-2">
                     <div 
                       className="bg-warning-500 h-2 rounded-full"
                       style={{ 
@@ -421,16 +461,16 @@ const Progress: React.FC = () => {
                       }}
                     />
                   </div>
-                  <span className="text-sm font-medium">{analytics.totalEmojis['😐']}</span>
+                  <span className="text-sm font-medium text-neutral-800 dark:text-neutral-300">{analytics.totalEmojis['😐']}</span>
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <span className="text-xl">😞</span>
-                  <span className="text-neutral-600">Learning</span>
+                  <span className="text-neutral-600 dark:text-neutral-400">Learning</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <div className="w-16 bg-neutral-200 rounded-full h-2">
+                  <div className="w-16 bg-neutral-200 dark:bg-neutral-700 rounded-full h-2">
                     <div 
                       className="bg-error-500 h-2 rounded-full"
                       style={{ 
@@ -440,14 +480,14 @@ const Progress: React.FC = () => {
                       }}
                     />
                   </div>
-                  <span className="text-sm font-medium">{analytics.totalEmojis['😞']}</span>
+                  <span className="text-sm font-medium text-neutral-800 dark:text-neutral-300">{analytics.totalEmojis['😞']}</span>
                 </div>
               </div>
             </div>
             <div className="mt-4 text-center">
-              <div className="inline-flex items-center px-3 py-1 bg-success-50 rounded-full">
-                <Star className="w-4 h-4 text-success-600 mr-1" />
-                <span className="text-sm font-medium text-success-700">
+              <div className="inline-flex items-center px-3 py-1 bg-success-50 dark:bg-success-900/20 rounded-full">
+                <Star className="w-4 h-4 text-success-600 dark:text-success-400 mr-1" />
+                <span className="text-sm font-medium text-success-700 dark:text-success-300">
                   Great positivity! 🌟
                 </span>
               </div>
@@ -458,10 +498,10 @@ const Progress: React.FC = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.3 }}
-            className="md:col-span-2 bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-primary-100 shadow-lg"
+            className="md:col-span-2 bg-white/80 dark:bg-neutral-800/80 backdrop-blur-sm rounded-2xl p-6 border border-primary-100 dark:border-neutral-700 shadow-lg"
           >
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-semibold text-neutral-800">Learning Insights</h3>
+              <h3 className="text-lg font-semibold text-neutral-800 dark:text-neutral-200">Learning Insights</h3>
               <Brain className="w-6 h-6 text-primary-500" />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -471,26 +511,26 @@ const Progress: React.FC = () => {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3, delay: index * 0.1 }}
-                  className="text-center p-4 bg-gradient-to-br from-neutral-50 to-neutral-100 rounded-xl"
+                  className="text-center p-4 bg-gradient-to-br from-neutral-50 to-neutral-100 dark:from-neutral-800 dark:to-neutral-700 rounded-xl"
                 >
                   <div className={`w-12 h-12 bg-gradient-to-r ${insight.color} rounded-xl flex items-center justify-center mx-auto mb-3`}>
                     <insight.icon className="w-6 h-6 text-white" />
                   </div>
-                  <p className="text-sm text-neutral-600 mb-1">{insight.title}</p>
-                  <p className="font-bold text-neutral-800">{insight.value}</p>
-                  <p className="text-xs text-neutral-500">{insight.detail}</p>
+                  <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-1">{insight.title}</p>
+                  <p className="font-bold text-neutral-800 dark:text-neutral-200">{insight.value}</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-500">{insight.detail}</p>
                 </motion.div>
               ))}
             </div>
-            <div className="mt-6 p-4 bg-gradient-to-r from-primary-50 to-secondary-50 rounded-xl">
+            <div className="mt-6 p-4 bg-gradient-to-r from-primary-50 to-secondary-50 dark:from-primary-900/20 dark:to-secondary-900/20 rounded-xl">
               <div className="flex items-center">
                 <div className="w-10 h-10 bg-gradient-to-r from-primary-500 to-secondary-500 rounded-full flex items-center justify-center mr-3">
                   <span className="text-white font-bold">💡</span>
                 </div>
                 <div>
-                  <p className="font-medium text-neutral-800">Pro Tip</p>
-                  <p className="text-sm text-neutral-600">
-                    You learn 40% better with images! Try adding visuals to your cards.
+                  <p className="font-medium text-neutral-800 dark:text-neutral-200">Pro Tip</p>
+                  <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                    {dynamicTip || 'You learn 40% better with images! Try adding visuals to your cards.'}
                   </p>
                 </div>
               </div>
@@ -505,32 +545,32 @@ const Progress: React.FC = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.4 }}
-            className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-primary-100 shadow-lg"
+            className="bg-white/80 dark:bg-neutral-800/80 backdrop-blur-sm rounded-2xl p-6 border border-primary-100 dark:border-neutral-700 shadow-lg"
           >
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-neutral-800">Goals & Achievements</h3>
+              <h3 className="text-xl font-bold text-neutral-800 dark:text-neutral-200">Goals & Achievements</h3>
               <Target className="w-6 h-6 text-primary-500" />
             </div>
             
             <div className="space-y-6">
               <div>
-                <h4 className="font-semibold text-neutral-800 mb-4">Current Goals:</h4>
+                <h4 className="font-semibold text-neutral-800 dark:text-neutral-200 mb-4">Current Goals:</h4>
                 <div className="space-y-4">
                   {goals.map((goal, index) => (
                     <div key={index} className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-neutral-700">{goal.title}</span>
+                        <span className="text-neutral-700 dark:text-neutral-300">{goal.title}</span>
                         <div className="flex items-center space-x-2">
                           {goal.status === 'completed' ? (
-                            <span className="text-success-600 font-medium">✅ Done! ({goal.current}/{goal.target})</span>
+                            <span className="text-success-600 dark:text-success-400 font-medium">✅ Done! ({goal.current}/{goal.target})</span>
                           ) : goal.status === 'in-progress' ? (
-                            <span className="text-warning-600 font-medium">⏳ ({goal.current}/{goal.target})</span>
+                            <span className="text-warning-600 dark:text-warning-400 font-medium">⏳ ({goal.current}/{goal.target})</span>
                           ) : (
-                            <span className="text-error-600 font-medium">🎯 ({goal.current}/{goal.target}{goal.unit})</span>
+                            <span className="text-error-600 dark:text-error-400 font-medium">🎯 ({goal.current}/{goal.target}{goal.unit})</span>
                           )}
                         </div>
                       </div>
-                      <div className="w-full bg-neutral-200 rounded-full h-2">
+                      <div className="w-full bg-neutral-200 dark:bg-neutral-700 rounded-full h-2">
                         <div 
                           className={`h-2 rounded-full transition-all duration-500 ${
                             goal.status === 'completed' ? 'bg-success-500' :
@@ -545,18 +585,28 @@ const Progress: React.FC = () => {
               </div>
 
               <div>
-                <h4 className="font-semibold text-neutral-800 mb-4">Recent Achievements:</h4>
+                <h4 className="font-semibold text-neutral-800 dark:text-neutral-200 mb-4">Recent Achievements:</h4>
                 <div className="space-y-3">
-                  {achievements.map((achievement, index) => (
-                    <div key={index} className="flex items-start space-x-3 p-3 bg-gradient-to-r from-success-50 to-primary-50 rounded-xl">
-                      <div className="text-2xl">{achievement.icon}</div>
-                      <div className="flex-1">
-                        <p className="font-medium text-neutral-800">{achievement.title}</p>
-                        <p className="text-sm text-neutral-600">{achievement.description}</p>
-                        <p className="text-xs text-neutral-500 mt-1">{achievement.earned}</p>
+                  {achievements.length > 0 ? (
+                    achievements.slice(0, 3).map((achievement, index) => (
+                      <div key={achievement.id} className="flex items-start space-x-3 p-3 bg-gradient-to-r from-success-50 to-primary-50 dark:from-success-900/10 dark:to-primary-900/10 rounded-xl">
+                        <div className="text-2xl">{achievement.icon}</div>
+                        <div className="flex-1">
+                          <p className="font-medium text-neutral-800 dark:text-neutral-200">{achievement.title}</p>
+                          <p className="text-sm text-neutral-600 dark:text-neutral-400">{achievement.description}</p>
+                          <p className="text-xs text-neutral-500 dark:text-neutral-500 mt-1">
+                            {achievement.unlockedAt ? getRelativeTimeString(achievement.unlockedAt) : 'Recently earned'}
+                          </p>
+                        </div>
                       </div>
+                    ))
+                  ) : (
+                    <div className="text-center p-6 bg-neutral-50 dark:bg-neutral-800 rounded-xl">
+                      <div className="text-4xl mb-2">🎯</div>
+                      <p className="font-medium text-neutral-700 dark:text-neutral-300 mb-1">Start Your Journey!</p>
+                      <p className="text-sm text-neutral-600 dark:text-neutral-400">Complete study sessions to earn achievements</p>
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
             </div>
@@ -567,7 +617,7 @@ const Progress: React.FC = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.5 }}
-            className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-primary-100 shadow-lg"
+            className="bg-white/80 dark:bg-neutral-800/80 backdrop-blur-sm rounded-2xl p-6 border border-primary-100 dark:border-neutral-700 shadow-lg"
           >
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-neutral-800">Weekly Progress</h3>

@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { useStudy } from '../contexts/StudyContext';
 import { ArrowLeft, Trash2, Pencil } from 'lucide-react';
+import QuestionFormatter from '../components/QuestionFormatter';
+import CardContent from '../components/CardContent';
 
 interface Card {
   id: string;
@@ -10,11 +12,40 @@ interface Card {
   back: string;
 }
 
+// Updated interface
 interface EditableCard extends Card {
   isEditing?: boolean;
-  editFront?: string;
-  editBack?: string;
+  editFrontText?: string;
+  editFrontImageUrl?: string | null;
+  editBackText?: string;
+  editBackImageUrl?: string | null;
 }
+
+// Helper to parse content
+const parseContent = (html: string): { text: string; imageUrl: string | null } => {
+  if (!html) return { text: '', imageUrl: null };
+  const imgRegex = /<img src="([^"]+)"[^>]*>/;
+  const match = html.match(imgRegex);
+  if (match && match[1]) {
+    const text = html.replace(imgRegex, '').trim();
+    return { text, imageUrl: match[1] };
+  }
+  return { text: html, imageUrl: null };
+};
+
+const buildContent = (text?: string, imageUrl?: string | null) => {
+    let content = text || '';
+    if (imageUrl) {
+        content += ` <img src="${imageUrl}" alt="img" style="max-width: 100%; height: auto;" />`;
+    }
+    return content.trim();
+};
+
+// Helper to detect if content is an MC question
+const isMultipleChoice = (content: string): boolean => {
+  return /[A-Z]\.\s/.test(content) && content.includes('A.') && content.includes('B.');
+};
+
 
 const DeckDetails: React.FC = () => {
   const { deckId } = useParams<{ deckId: string }>();
@@ -50,9 +81,9 @@ const DeckDetails: React.FC = () => {
     navigate('/dashboard');
   };
 
+  // Updated startEditCard
   const startEditCard = (c: EditableCard) => {
-    setCards(prev=>prev.map(card=> card.id===c.id ? {...card, isEditing:true, editFront:card.front, editBack:card.back} : card));
-    setEditingCardId(c.id);
+    navigate(`/deck/${deckId}/card/${c.id}/edit`);
   };
 
   const cancelEditCard = (id:string) => {
@@ -60,11 +91,24 @@ const DeckDetails: React.FC = () => {
     setEditingCardId(null);
   };
 
+  // Updated saveCard
   const saveCard = async (id:string) => {
     const card = cards.find(c=>c.id===id);
     if(!card) return;
-    await supabase.from('cards').update({front:card.editFront, back:card.editBack}).eq('id',id);
-    setCards(prev=>prev.map(c=> c.id===id ? {...c, front:c.editFront!, back:c.editBack!, isEditing:false} : c));
+
+    const buildContent = (text?: string, imageUrl?: string | null) => {
+        let content = text || '';
+        if (imageUrl) {
+            content += ` <img src="${imageUrl}" alt="img" style="max-width: 100%; height: auto;" />`;
+        }
+        return content.trim();
+    };
+
+    const newFront = buildContent(card.editFrontText, card.editFrontImageUrl);
+    const newBack = buildContent(card.editBackText, card.editBackImageUrl);
+
+    await supabase.from('cards').update({front: newFront, back: newBack}).eq('id',id);
+    setCards(prev=>prev.map(c=> c.id===id ? {...c, front: newFront, back: newBack, isEditing:false} : c));
     setEditingCardId(null);
   };
 
@@ -106,28 +150,20 @@ const DeckDetails: React.FC = () => {
           {cards.length}
         </span>
       </h2>
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Updated grid layout */}
+      <div className="grid sm:grid-cols-1 lg:grid-cols-2 gap-6">
         {cards.map(c=> (
           <div key={c.id} className="group relative p-5 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl shadow transition-all hover:shadow-lg hover:-translate-y-1 hover:border-primary-300 dark:hover:border-primary-500">
-            {c.isEditing ? (
-              <div className="space-y-2">
-                <textarea value={c.editFront} onChange={e=>setCards(prev=>prev.map(card=>card.id===c.id?{...card,editFront:e.target.value}:card))} className="w-full px-2 py-1 border rounded" rows={2}/>
-                <textarea value={c.editBack} onChange={e=>setCards(prev=>prev.map(card=>card.id===c.id?{...card,editBack:e.target.value}:card))} className="w-full px-2 py-1 border rounded" rows={2}/>
-                <div className="flex space-x-2">
-                  <button onClick={()=>saveCard(c.id)} className="px-3 py-1 bg-primary-500 hover:bg-primary-600 text-white rounded text-sm">Save</button>
-                  <button onClick={()=>cancelEditCard(c.id)} className="px-3 py-1 bg-neutral-300 dark:bg-neutral-600 text-neutral-800 dark:text-neutral-200 rounded text-sm">Cancel</button>
-                </div>
-              </div>
+            {isMultipleChoice(c.front) ? (
+              <QuestionFormatter content={c.front} className="font-medium text-neutral-800 dark:text-neutral-100 mb-1 break-words" />
             ) : (
-              <>
-                <p className="font-medium text-neutral-800 dark:text-neutral-100 mb-1 break-words">{c.front}</p>
-                <p className="text-sm text-neutral-600 dark:text-neutral-400 break-words">{c.back}</p>
-                <div className="absolute top-2 right-2 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={()=>startEditCard(c)} className="p-1 text-neutral-500 hover:text-primary-600 focus:outline-none"><Pencil className="w-4 h-4"/></button>
-                  <button onClick={()=>deleteCard(c.id)} className="p-1 text-neutral-500 hover:text-error-600 focus:outline-none"><Trash2 className="w-4 h-4"/></button>
-                </div>
-              </>
+              <CardContent content={c.front} className="font-medium text-neutral-800 dark:text-neutral-100 mb-1 break-words" />
             )}
+            <CardContent content={c.back} className="text-sm text-neutral-600 dark:text-neutral-400 break-words" />
+            <div className="absolute top-2 right-2 flex space-x-1 transition-opacity">
+              <button onClick={()=>startEditCard(c)} className="p-1 text-neutral-500 hover:text-primary-600 focus:outline-none"><Pencil className="w-4 h-4"/></button>
+              <button onClick={()=>deleteCard(c.id)} className="p-1 text-neutral-500 hover:text-error-600 focus:outline-none"><Trash2 className="w-4 h-4"/></button>
+            </div>
           </div>
         ))}
       </div>
@@ -135,4 +171,4 @@ const DeckDetails: React.FC = () => {
   );
 };
 
-export default DeckDetails; 
+export default DeckDetails;

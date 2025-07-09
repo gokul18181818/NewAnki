@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Pause, Volume2, VolumeX, Eye, EyeOff, HelpCircle } from 'lucide-react';
 import { Card, ClozeCard, ImageOcclusionCard, TypeInCard, AudioCard, MultipleChoiceCard } from '../types/CardTypes';
+import { supabase } from '../lib/supabaseClient';
 
 interface CardRendererProps {
   card: Card;
@@ -207,7 +208,75 @@ const CardRenderer: React.FC<CardRendererProps> = ({
   };
 
   const renderImageOcclusionCard = () => {
-    const imageCard = card as ImageOcclusionCard;
+    // Parse the image occlusion data from the front field
+    let imageCard: ImageOcclusionCard;
+    
+    try {
+      // Always parse JSON data from front field for image occlusion cards
+      // The occlusions data is stored in the front field as JSON
+      const frontData = JSON.parse(card.front);
+      
+      imageCard = {
+        ...card,
+        type: 'image-occlusion',
+        image: frontData.image,
+        question: frontData.question,
+        occlusions: frontData.occlusions || []
+      } as ImageOcclusionCard;
+    } catch (error) {
+      console.error('Failed to parse image occlusion data:', error);
+      return <div className="text-center text-red-500">Error loading image occlusion card</div>;
+    }
+
+    // Ensure occlusions array exists
+    if (!imageCard.occlusions || !Array.isArray(imageCard.occlusions)) {
+      console.error('Invalid occlusions data:', imageCard.occlusions);
+      return <div className="text-center text-red-500">Invalid occlusion data</div>;
+    }
+
+    // Generate a fresh signed URL for the image if needed
+    const [imageUrl, setImageUrl] = useState<string>('');
+    
+    useEffect(() => {
+      const getImageUrl = async () => {
+        try {
+          // Extract the file path from the stored URL
+          const originalUrl = imageCard.image;
+          
+          // If it's already a signed URL that's working, use it
+          if (originalUrl.includes('supabase.co/storage/v1/object/sign/')) {
+            // Extract the file path from the signed URL
+            const pathMatch = originalUrl.match(/\/images\/([^?]+)/);
+            if (pathMatch) {
+              const filePath = pathMatch[1];
+              console.log('🔄 Generating fresh signed URL for:', filePath);
+              
+              // Generate a new signed URL
+              const { data, error } = await supabase.storage
+                .from('images')
+                .createSignedUrl(filePath, 3600); // 1 hour expiry
+              
+              if (data) {
+                setImageUrl(data.signedUrl);
+                console.log('✅ Generated fresh signed URL:', data.signedUrl);
+              } else {
+                console.error('❌ Failed to generate signed URL:', error);
+                setImageUrl(originalUrl); // Fallback to original
+              }
+            } else {
+              setImageUrl(originalUrl); // Fallback to original
+            }
+          } else {
+            setImageUrl(originalUrl); // Use original if not a signed URL
+          }
+        } catch (error) {
+          console.error('❌ Error generating image URL:', error);
+          setImageUrl(imageCard.image); // Fallback to original
+        }
+      };
+      
+      getImageUrl();
+    }, [imageCard.image]);
     
     const toggleOcclusion = (occlusionId: string) => {
       setHiddenOcclusions(prev => 
@@ -226,38 +295,89 @@ const CardRenderer: React.FC<CardRendererProps> = ({
         )}
         
         <div className="relative inline-block mb-6">
-          <img
-            src={imageCard.image}
-            alt="Study diagram"
-            className="max-w-full h-auto rounded-xl shadow-lg"
-          />
-          
-          {imageCard.occlusions.map((occlusion) => (
-            <div
-              key={occlusion.id}
-              className={`absolute cursor-pointer transition-all duration-200 ${
-                showAnswer || hiddenOcclusions.includes(occlusion.id)
-                  ? 'bg-primary-500/20 border-2 border-primary-500'
-                  : 'bg-neutral-800/80 hover:bg-neutral-700/80'
-              }`}
-              style={{
-                left: `${occlusion.x}%`,
-                top: `${occlusion.y}%`,
-                width: `${occlusion.width}%`,
-                height: `${occlusion.height}%`,
+          {imageUrl ? (
+            <img
+              src={imageUrl}
+              alt="Study diagram"
+              className="max-w-full h-auto rounded-xl shadow-lg"
+              onError={(e) => {
+                console.error('❌ Image failed to load:', imageUrl);
+                console.error('Error details:', e);
               }}
-              onClick={() => toggleOcclusion(occlusion.id)}
-              title={showAnswer ? occlusion.label : 'Click to reveal'}
-            >
-              {(showAnswer || hiddenOcclusions.includes(occlusion.id)) && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-xs font-semibold text-primary-700 dark:text-primary-300 bg-white/90 dark:bg-neutral-800/90 px-2 py-1 rounded">
-                    {occlusion.label}
-                  </span>
-                </div>
-              )}
+              onLoad={() => {
+                console.log('✅ Image loaded successfully:', imageUrl);
+              }}
+            />
+          ) : (
+            <div className="w-64 h-32 bg-gray-200 dark:bg-gray-700 rounded-xl flex items-center justify-center">
+              <span className="text-gray-500 dark:text-gray-400">Loading image...</span>
             </div>
-          ))}
+          )}
+          
+          {imageCard.occlusions.map((occlusion) => {
+            const occlusionColor = occlusion.color || '#3B82F6'; // Default blue
+            const isRevealed = showAnswer || hiddenOcclusions.includes(occlusion.id);
+            
+            console.log('🎯 Rendering occlusion:', {
+              id: occlusion.id,
+              x: occlusion.x,
+              y: occlusion.y,
+              width: occlusion.width,
+              height: occlusion.height,
+              label: occlusion.label,
+              color: occlusionColor,
+              isRevealed,
+              showAnswer,
+              hiddenOcclusions
+            });
+            
+            return (
+              <div
+                key={occlusion.id}
+                className="absolute cursor-pointer transition-all duration-200 border-2"
+                style={{
+                  left: `${occlusion.x}%`,
+                  top: `${occlusion.y}%`,
+                  width: `${occlusion.width}%`,
+                  height: `${occlusion.height}%`,
+                  borderColor: isRevealed ? occlusionColor : '#ff0000', // Red border for debugging
+                  backgroundColor: isRevealed 
+                    ? `${occlusionColor}33` // 20% opacity when revealed
+                    : 'rgba(0, 0, 0, 0.9)', // Dark overlay when hidden
+                  zIndex: 10,
+                  minWidth: '20px',
+                  minHeight: '20px',
+                  boxShadow: isRevealed ? 'none' : '0 0 0 2px rgba(255, 0, 0, 0.5)' // Red outline for debugging
+                }}
+                onClick={() => toggleOcclusion(occlusion.id)}
+                title={showAnswer ? occlusion.label : 'Click to reveal'}
+                onMouseEnter={(e) => {
+                  if (!isRevealed) {
+                    e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isRevealed) {
+                    e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+                  }
+                }}
+              >
+                {isRevealed && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span 
+                      className="text-xs font-semibold text-white bg-black/70 px-2 py-1 rounded"
+                      style={{ 
+                        color: 'white',
+                        textShadow: '1px 1px 2px rgba(0,0,0,0.8)'
+                      }}
+                    >
+                      {occlusion.label}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {!showAnswer && (
@@ -278,7 +398,25 @@ const CardRenderer: React.FC<CardRendererProps> = ({
   };
 
   const renderTypeInCard = () => {
-    const typeCard = card as TypeInCard;
+    let typeCard = card as TypeInCard;
+    
+    // If the card data isn't transformed yet, try to parse it from the back field
+    if (!typeCard.answer || !typeCard.question) {
+      if (typeCard.back && typeof typeCard.back === 'string') {
+        try {
+          const typeInData = JSON.parse(typeCard.back);
+          typeCard = {
+            ...typeCard,
+            question: typeCard.front,
+            answer: typeInData.answer || '',
+            acceptableAnswers: typeInData.acceptableAnswers || [],
+            caseSensitive: typeInData.caseSensitive || false
+          };
+        } catch (jsonError) {
+          console.warn('Failed to parse type-in JSON:', jsonError);
+        }
+      }
+    }
     
     const checkAnswer = () => {
       if (onAnswer) {
@@ -287,7 +425,7 @@ const CardRenderer: React.FC<CardRendererProps> = ({
       onShowAnswer();
     };
 
-    const isCorrect = showAnswer && (
+    const isCorrect = showAnswer && typeCard.answer && (
       userInput.toLowerCase().trim() === typeCard.answer.toLowerCase().trim() ||
       typeCard.acceptableAnswers?.some(answer => 
         typeCard.caseSensitive 
@@ -299,7 +437,7 @@ const CardRenderer: React.FC<CardRendererProps> = ({
     return (
       <div className="text-center">
         <div className="text-2xl font-semibold text-neutral-800 dark:text-neutral-200 mb-6">
-          {typeCard.question}
+          {typeCard.question || typeCard.front || 'Question not available'}
         </div>
 
         {typeCard.image && (
@@ -455,7 +593,40 @@ const CardRenderer: React.FC<CardRendererProps> = ({
   };
 
   const renderMultipleChoiceCard = () => {
-    const mcCard = card as MultipleChoiceCard;
+    let mcCard = card as MultipleChoiceCard;
+    
+    // If the card data isn't transformed yet, try to parse it from the back field
+    if (!mcCard.options || !Array.isArray(mcCard.options) || mcCard.options.length === 0) {
+      if (mcCard.back && typeof mcCard.back === 'string') {
+        try {
+          const mcData = JSON.parse(mcCard.back);
+          mcCard = {
+            ...mcCard,
+            question: mcCard.front,
+            options: mcData.options || [],
+            correctAnswer: mcData.correctAnswer || 0,
+            explanation: mcData.explanation || ''
+          };
+        } catch (jsonError) {
+          console.warn('Failed to parse multiple choice JSON:', jsonError);
+        }
+      }
+    }
+    
+    // Add defensive checks for card data
+    if (!mcCard.options || !Array.isArray(mcCard.options) || mcCard.options.length === 0) {
+      console.warn('Multiple choice card missing options:', mcCard);
+      return (
+        <div className="text-center">
+          <div className="text-2xl font-semibold text-neutral-800 dark:text-neutral-200 mb-6">
+            {mcCard.question || mcCard.front || 'Question not available'}
+          </div>
+          <div className="text-red-600 dark:text-red-400">
+            Error: No options available for this multiple choice card
+          </div>
+        </div>
+      );
+    }
     
     const handleOptionSelect = (optionIndex: number) => {
       setSelectedOption(optionIndex);
@@ -468,7 +639,7 @@ const CardRenderer: React.FC<CardRendererProps> = ({
     return (
       <div className="text-center">
         <div className="text-2xl font-semibold text-neutral-800 dark:text-neutral-200 mb-6">
-          {mcCard.question}
+          {mcCard.question || 'Question not available'}
         </div>
 
         {mcCard.image && (
@@ -489,7 +660,7 @@ const CardRenderer: React.FC<CardRendererProps> = ({
               disabled={showAnswer}
               className={`w-full p-4 text-left rounded-xl border-2 transition-all duration-200 ${
                 showAnswer
-                  ? index === mcCard.correctAnswer
+                  ? index === (mcCard.correctAnswer || 0)
                     ? 'bg-success-50 dark:bg-success-900/20 border-success-500 text-success-700 dark:text-success-300'
                     : selectedOption === index
                     ? 'bg-error-50 dark:bg-error-900/20 border-error-500 text-error-700 dark:text-error-300'
@@ -501,19 +672,19 @@ const CardRenderer: React.FC<CardRendererProps> = ({
             >
               <div className="flex items-center space-x-3">
                 <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-sm font-bold ${
-                  showAnswer && index === mcCard.correctAnswer
+                  showAnswer && index === (mcCard.correctAnswer || 0)
                     ? 'bg-success-500 border-success-500 text-white'
-                    : showAnswer && selectedOption === index && index !== mcCard.correctAnswer
+                    : showAnswer && selectedOption === index && index !== (mcCard.correctAnswer || 0)
                     ? 'bg-error-500 border-error-500 text-white'
                     : 'border-current'
                 }`}>
                   {String.fromCharCode(65 + index)}
                 </div>
                 <span className="flex-1">{option}</span>
-                {showAnswer && index === mcCard.correctAnswer && (
+                {showAnswer && index === (mcCard.correctAnswer || 0) && (
                   <span className="text-success-500">✓</span>
                 )}
-                {showAnswer && selectedOption === index && index !== mcCard.correctAnswer && (
+                {showAnswer && selectedOption === index && index !== (mcCard.correctAnswer || 0) && (
                   <span className="text-error-500">✗</span>
                 )}
               </div>

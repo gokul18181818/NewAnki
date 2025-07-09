@@ -24,6 +24,7 @@ import { useUser } from '../contexts/UserContext';
 import { useStudy } from '../contexts/StudyContext';
 import ThemeToggle from '../components/ThemeToggle';
 import { supabase } from '../lib/supabaseClient';
+import { getPersonalizedTip } from '../lib/dynamicContent';
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -58,6 +59,7 @@ const Dashboard: React.FC = () => {
   // NEW: Real study calendar data
   const [studyCalendarData, setStudyCalendarData] = useState<{ [key: string]: boolean }>({});
   const [streakInfo, setStreakInfo] = useState<{ currentStreak: number; longestStreak: number } | null>(null);
+  const [dynamicTip, setDynamicTip] = useState<string>('');
 
   useEffect(() => {
     const loadStats = async () => {
@@ -123,16 +125,35 @@ const Dashboard: React.FC = () => {
       const streak = await getStreakInfo();
       setStreakInfo(streak);
       console.log('Loaded streak info:', streak);
+      
+      // Load personalized tip
+      if (session?.user) {
+        const tip = await getPersonalizedTip(session.user.id);
+        setDynamicTip(tip.content);
+      }
     };
     loadStats();
   }, [decks, getCardsStudiedToday, getWorkloadRecommendation, checkBurnoutRisk, getStudyCalendarData, getStreakInfo]);
 
   useEffect(() => {
     const fetchInsights = async () => {
+      // Try user-level insights first (requires new SQL func)
+      const { data: sessionData } = await supabase.auth.getSession();
+      const uid = sessionData?.session?.user?.id;
+
+      if (uid) {
+        const { data: userData, error: userErr } = await supabase.rpc('user_learning_insights', { p_user_id: uid });
+        if (!userErr && userData) {
+          setInsights(userData as any);
+          return; // done
+        }
+      }
+
+      // Fallback: primary deck-level insights
       if (!decks.length) return;
       const primaryDeckId = decks[0].id;
-      const { data, error } = await supabase.rpc('deck_learning_insights', { p_deck_id: primaryDeckId });
-      if (!error) setInsights(data as any);
+      const { data: deckData, error: deckErr } = await supabase.rpc('deck_learning_insights', { p_deck_id: primaryDeckId });
+      if (!deckErr) setInsights(deckData as any);
     };
     fetchInsights();
   }, [decks]);
@@ -185,13 +206,6 @@ const Dashboard: React.FC = () => {
             </div>
             <div className="flex items-center space-x-4">
               <ThemeToggle />
-              <button
-                onClick={() => navigate('/analytics')}
-                className="p-2 text-neutral-600 dark:text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
-                title="Analytics"
-              >
-                <TrendingUp className="w-6 h-6" />
-              </button>
               <button
                 onClick={() => navigate('/progress')}
                 className="p-2 text-neutral-600 dark:text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
@@ -676,7 +690,7 @@ const Dashboard: React.FC = () => {
               <div>
                 <p className="font-medium text-neutral-800 dark:text-neutral-200">Pro Tip</p>
                 <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                  You learn 40% better with images! Try adding visuals to your cards.
+                  {dynamicTip || 'You learn 40% better with images! Try adding visuals to your cards.'}
                 </p>
               </div>
             </div>

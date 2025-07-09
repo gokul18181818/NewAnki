@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabaseClient';
 import { useStudy } from '../contexts/StudyContext';
 import { useUser } from '../contexts/UserContext';
 import { uploadFile } from '../lib/uploadFile';
+import { getDynamicAISuggestion } from '../lib/dynamicContent';
 import { useDropzone } from 'react-dropzone';
 import { 
   FileText, 
@@ -14,9 +15,12 @@ import {
   Save,
   Eye,
   Brain,
+  Upload,
+  X,
 } from 'lucide-react';
 import CardTypeSelector from '../components/CardTypeSelector';
 import DeckPicker from '../components/DeckPicker';
+import ImageOcclusionEditor from '../components/ImageOcclusionEditor';
 import { CardType } from '../types/CardTypes';
 
 type CreationMethod = 'pdf' | 'text' | 'manual';
@@ -31,6 +35,7 @@ const CreateCards: React.FC = () => {
   const [targetDeckId, setTargetDeckId] = useState<string | null>(null);
   const [selectedDeckId, setSelectedDeckId] = useState<string | null>(null);
   const [textSource, setTextSource] = useState('');
+  const [aiSuggestion, setAiSuggestion] = useState<string>('');
   const [manualCardData, setManualCardData] = useState({
     type: 'basic' as CardType,
     front: '',
@@ -53,8 +58,40 @@ const CreateCards: React.FC = () => {
     audioQuestion: '',
     audioAnswer: '',
     transcript: '',
+    // Image occlusion specific
+    imageUrl: '',
+    imageQuestion: '',
+    uploadedImageFile: null as File | null,
+    occlusions: [] as Array<{
+      id: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      label: string;
+      hint?: string;
+      color?: string;
+    }>,
   });
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const imageInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  // Update AI suggestion based on card content
+  React.useEffect(() => {
+    const updateSuggestion = async () => {
+      if (manualCardData.front || manualCardData.back) {
+        const suggestion = await getDynamicAISuggestion({
+          front: manualCardData.front,
+          back: manualCardData.back,
+          type: manualCardData.type
+        });
+        setAiSuggestion(suggestion);
+      }
+    };
+    
+    const timeoutId = setTimeout(updateSuggestion, 500); // Debounce
+    return () => clearTimeout(timeoutId);
+  }, [manualCardData.front, manualCardData.back, manualCardData.type]);
 
   const creationMethods = [
     {
@@ -263,13 +300,23 @@ const CreateCards: React.FC = () => {
           alert('Please fill in the question and at least one option for multiple choice cards');
           return;
         }
+        // Validate correctAnswer is within bounds
+        if (manualCardData.correctAnswer < 0 || manualCardData.correctAnswer >= manualCardData.options.length) {
+          alert('Please select a valid correct answer option');
+          return;
+        }
         // Store multiple choice data in front/back format for compatibility
         front = manualCardData.mcQuestion;
-        back = JSON.stringify({
-          options: manualCardData.options,
-          correctAnswer: manualCardData.correctAnswer,
-          explanation: manualCardData.explanation
-        });
+        try {
+          back = JSON.stringify({
+            options: manualCardData.options,
+            correctAnswer: manualCardData.correctAnswer,
+            explanation: manualCardData.explanation
+          });
+        } catch (jsonError) {
+          alert('Failed to process multiple choice data. Please check your options for invalid characters.');
+          return;
+        }
         break;
         
       case 'cloze':
@@ -294,6 +341,19 @@ const CreateCards: React.FC = () => {
         });
         break;
         
+      case 'image-occlusion':
+        if (!manualCardData.imageUrl || manualCardData.occlusions.length === 0) {
+          alert('Please add an image URL and at least one occlusion area');
+          return;
+        }
+        front = JSON.stringify({
+          question: manualCardData.imageQuestion,
+          image: manualCardData.imageUrl,
+          occlusions: manualCardData.occlusions
+        });
+        back = 'Image occlusion card'; // Will be processed by renderer
+        break;
+        
       default:
         if (!manualCardData.front || !manualCardData.back) {
           alert('Please fill in both front and back');
@@ -303,21 +363,26 @@ const CreateCards: React.FC = () => {
         back = manualCardData.back;
     }
 
-    await addCard({
-      deckId: selectedDeckId,
-      type: manualCardData.type,
-      front,
-      back,
-      tags: manualCardData.tags ? manualCardData.tags.split(',').map(t=>t.trim()).filter(Boolean) : [],
-      difficulty: 0,
-      lastStudied: null,
-      nextDue: new Date().toISOString(),
-      interval: 1,
-      easeFactor: 2.5,
-      reviewCount: 0,
-    });
+    try {
+      await addCard({
+        deckId: selectedDeckId,
+        type: manualCardData.type,
+        front,
+        back,
+        tags: manualCardData.tags ? manualCardData.tags.split(',').map(t=>t.trim()).filter(Boolean) : [],
+        difficulty: 0,
+        lastStudied: null,
+        nextDue: new Date().toISOString(),
+        interval: 1,
+        easeFactor: 2.5,
+        reviewCount: 0,
+      });
 
-    navigate('/dashboard');
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Failed to save card:', error);
+      alert(`Failed to save card: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
   const handleSaveAndStudy = async () => {
@@ -356,13 +421,23 @@ const CreateCards: React.FC = () => {
           alert('Please fill in the question and at least one option for multiple choice cards');
           return;
         }
+        // Validate correctAnswer is within bounds
+        if (manualCardData.correctAnswer < 0 || manualCardData.correctAnswer >= manualCardData.options.length) {
+          alert('Please select a valid correct answer option');
+          return;
+        }
         // Store multiple choice data in front/back format for compatibility
         front = manualCardData.mcQuestion;
-        back = JSON.stringify({
-          options: manualCardData.options,
-          correctAnswer: manualCardData.correctAnswer,
-          explanation: manualCardData.explanation
-        });
+        try {
+          back = JSON.stringify({
+            options: manualCardData.options,
+            correctAnswer: manualCardData.correctAnswer,
+            explanation: manualCardData.explanation
+          });
+        } catch (jsonError) {
+          alert('Failed to process multiple choice data. Please check your options for invalid characters.');
+          return;
+        }
         break;
         
       case 'cloze':
@@ -387,6 +462,19 @@ const CreateCards: React.FC = () => {
         });
         break;
         
+      case 'image-occlusion':
+        if (!manualCardData.imageUrl || manualCardData.occlusions.length === 0) {
+          alert('Please add an image URL and at least one occlusion area');
+          return;
+        }
+        front = JSON.stringify({
+          question: manualCardData.imageQuestion,
+          image: manualCardData.imageUrl,
+          occlusions: manualCardData.occlusions
+        });
+        back = 'Image occlusion card'; // Will be processed by renderer
+        break;
+        
       default:
         if (!manualCardData.front || !manualCardData.back) {
           alert('Please fill in both front and back');
@@ -397,22 +485,27 @@ const CreateCards: React.FC = () => {
     }
 
     // Save the card first
-    await addCard({
-      deckId: selectedDeckId,
-      type: manualCardData.type,
-      front,
-      back,
-      tags: manualCardData.tags ? manualCardData.tags.split(',').map(t=>t.trim()).filter(Boolean) : [],
-      difficulty: 0,
-      lastStudied: null,
-      nextDue: new Date().toISOString(),
-      interval: 1,
-      easeFactor: 2.5,
-      reviewCount: 0,
-    });
+    try {
+      await addCard({
+        deckId: selectedDeckId,
+        type: manualCardData.type,
+        front,
+        back,
+        tags: manualCardData.tags ? manualCardData.tags.split(',').map(t=>t.trim()).filter(Boolean) : [],
+        difficulty: 0,
+        lastStudied: null,
+        nextDue: new Date().toISOString(),
+        interval: 1,
+        easeFactor: 2.5,
+        reviewCount: 0,
+      });
 
-    // Then navigate to study the deck
-    navigate(`/study/${selectedDeckId}`);
+      // Then navigate to study the deck
+      navigate(`/study/${selectedDeckId}`);
+    } catch (error) {
+      console.error('Failed to save card:', error);
+      alert(`Failed to save card: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
   const handlePdfChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -427,6 +520,44 @@ const CreateCards: React.FC = () => {
       await generateCardsFromAI('pdf', signedUrl);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    
+    if (!file || !user) {
+      alert('Please sign in first');
+      return;
+    }
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Please select an image smaller than 5MB');
+      return;
+    }
+
+    try {
+      const signedUrl = await uploadFile('images', file, user.id);
+      setManualCardData(prev => ({ 
+        ...prev, 
+        imageUrl: signedUrl,
+        uploadedImageFile: file
+      }));
+    } catch (err) {
+      console.error('Upload failed:', err);
+      
+      if (err instanceof Error) {
+        alert(`Upload failed: ${err.message}`);
+      } else {
+        alert('Failed to upload image. Please try again.');
+      }
     }
   };
 
@@ -461,7 +592,9 @@ const CreateCards: React.FC = () => {
             <Brain className="w-5 h-5 text-primary-600 dark:text-primary-400 mt-0.5" />
             <div>
               <p className="text-sm font-medium text-primary-700 dark:text-primary-300">AI Suggestion</p>
-              <p className="text-sm text-primary-600 dark:text-primary-400">Add pronunciation and usage example?</p>
+              <p className="text-sm text-primary-600 dark:text-primary-400">
+                {aiSuggestion || 'Add pronunciation and usage example?'}
+              </p>
             </div>
           </div>
         </div>
@@ -611,6 +744,90 @@ const CreateCards: React.FC = () => {
     </div>
   );
 
+  const renderImageOcclusionForm = () => (
+    <div className="space-y-6">
+      <div>
+        <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+          Question (optional)
+        </label>
+        <textarea
+          value={manualCardData.imageQuestion}
+          onChange={(e) => setManualCardData(prev => ({ ...prev, imageQuestion: e.target.value }))}
+          placeholder="What are the labeled parts of this diagram?"
+          className="w-full p-3 border border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200"
+          rows={2}
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+          Upload Image
+        </label>
+        
+        {!manualCardData.imageUrl ? (
+          <div 
+            onClick={() => imageInputRef.current?.click()}
+            className="border-2 border-dashed border-neutral-300 dark:border-neutral-600 rounded-xl p-8 text-center cursor-pointer hover:border-primary-500 dark:hover:border-primary-400 transition-colors"
+          >
+            <Upload className="w-12 h-12 mx-auto mb-4 text-neutral-400" />
+            <p className="text-lg font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+              Click to upload an image
+            </p>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">
+              PNG, JPG, GIF up to 5MB
+            </p>
+          </div>
+        ) : (
+          <div className="relative">
+            <img
+              src={manualCardData.imageUrl}
+              alt="Uploaded diagram"
+              className="w-full max-h-64 object-contain rounded-xl border border-neutral-200 dark:border-neutral-600"
+            />
+            <button
+              onClick={() => setManualCardData(prev => ({ 
+                ...prev, 
+                imageUrl: '', 
+                uploadedImageFile: null, 
+                occlusions: [] 
+              }))}
+              className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+              title="Remove image"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+              {manualCardData.uploadedImageFile?.name || 'Uploaded image'}
+            </div>
+          </div>
+        )}
+        
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleImageUpload}
+          className="hidden"
+        />
+      </div>
+
+      {manualCardData.imageUrl && (
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+            Occlusion Areas
+          </label>
+          <ImageOcclusionEditor
+            imageUrl={manualCardData.imageUrl}
+            occlusions={manualCardData.occlusions}
+            onOcclusionsChange={(occlusions) => 
+              setManualCardData(prev => ({ ...prev, occlusions }))
+            }
+          />
+        </div>
+      )}
+    </div>
+  );
+
   const renderCardTypeForm = () => {
     switch (manualCardData.type) {
       case 'basic':
@@ -621,6 +838,8 @@ const CreateCards: React.FC = () => {
         return renderTypeInCardForm();
       case 'multiple-choice':
         return renderMultipleChoiceForm();
+      case 'image-occlusion':
+        return renderImageOcclusionForm();
       default:
         return renderBasicCardForm();
     }

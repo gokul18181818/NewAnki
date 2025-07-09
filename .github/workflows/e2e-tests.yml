@@ -1,0 +1,131 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: studybuddy_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 18
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Install Playwright Browsers
+      run: npx playwright install --with-deps
+    
+    - name: Build application
+      run: npm run build
+    
+    - name: Setup test environment
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+        TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+      run: |
+        echo "Setting up test environment..."
+        
+    - name: Start development server
+      run: |
+        npm run dev &
+        sleep 10
+        curl -f http://localhost:5173 || exit 1
+    
+    - name: Run Critical Path Tests
+      run: npm run test:auth && npm run test:study
+    
+    - name: Run Core Feature Tests
+      run: |
+        npm run test:import
+        npm run test:adaptive
+        npm run test:content
+    
+    - name: Run Integration Tests
+      run: |
+        npm run test:database
+        npm run test:burnout
+    
+    - name: Run Edge Case Tests
+      if: success() || failure()
+      run: npm run test:errors
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: playwright-report
+        path: playwright-report/
+        retention-days: 30
+    
+    - name: Upload test videos
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: test-videos
+        path: test-results/
+        retention-days: 7
+
+  performance-test:
+    needs: test
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 18
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Install Playwright Browsers
+      run: npx playwright install --with-deps chromium
+    
+    - name: Build application
+      run: npm run build
+    
+    - name: Start development server
+      run: |
+        npm run dev &
+        sleep 10
+    
+    - name: Run Performance Tests
+      run: npm run test:performance
+    
+    - name: Upload performance results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: performance-report
+        path: playwright-report/
+        retention-days: 30

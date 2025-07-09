@@ -14,6 +14,7 @@ import { AntiBurnoutEngine } from '../lib/antiBurnoutEngine';
 import { ResponseTimeData, SmartBreakSuggestion, FatigueIndicators } from '../types/AntiBurnoutTypes';
 import RecoveryProtocol from '../components/RecoveryProtocol';
 import { RecoveryProtocol as RecoveryProtocolType } from '../types/AntiBurnoutTypes';
+import { AdaptivePersonalizationEngine, PersonalizedRecommendations } from '../lib/adaptivePersonalization';
 
 interface PopupNotification {
   id: string;
@@ -100,10 +101,13 @@ const StudySession: React.FC = () => {
   const correctStreakRef = useRef<number>(0);
   const lastCorrectStreakPopupRef = useRef<number>(0);
 
-  // Milestone tracking (mastered cards)
-  const milestoneThresholds = [100, 250, 500, 1000];
+  // Adaptive personalization
+  const [personalizationEngine, setPersonalizationEngine] = useState<AdaptivePersonalizationEngine | null>(null);
+  const [personalizedRecommendations, setPersonalizedRecommendations] = useState<PersonalizedRecommendations | null>(null);
+  
+  // Dynamic milestone tracking (replaces static thresholds)
   const [masteredCount, setMasteredCount] = useState<number>(0);
-  const nextMilestoneRef = useRef<number>(milestoneThresholds[0]);
+  const nextMilestoneRef = useRef<number>(100); // Will be updated by personalization engine
 
   // Track which day-streak celebrations we've shown this session
   const shownDayStreakCelebrations = useRef<Set<number>>(new Set());
@@ -130,31 +134,53 @@ const StudySession: React.FC = () => {
     checkAuth();
   }, [isAuthenticated, user, navigate]);
 
-  // Initialize anti-burnout engine with user preferences
+  // Initialize personalization engine and anti-burnout engine
   useEffect(() => {
-    const initializeAntiBurnout = async () => {
+    const initializeEngines = async () => {
       if (!user?.id) return;
       
       try {
+        // Initialize personalization engine
+        const personEngine = new AdaptivePersonalizationEngine(user.id);
+        await personEngine.initializeProfile();
+        setPersonalizationEngine(personEngine);
+        
+        const recommendations = personEngine.getRecommendations();
+        setPersonalizedRecommendations(recommendations);
+        nextMilestoneRef.current = recommendations.nextMilestone;
+
+        // Initialize anti-burnout engine with adaptive recommendations
         const userPreferences = {
-          breakInterval: user.preferences?.breakInterval,
-          breakDuration: user.preferences?.breakDuration,
-          adaptiveBreaks: user.preferences?.adaptiveBreaks,
+          breakInterval: recommendations.breakInterval,
+          breakDuration: recommendations.breakDuration,
+          adaptiveBreaks: user.preferences?.adaptiveBreaks ?? true,
           maxDailyCards: user.preferences?.maxDailyCards,
-          customSessionLength: user.preferences?.customSessionLength,
+          customSessionLength: recommendations.sessionLengthRecommendation,
           sessionLength: user.preferences?.sessionLength,
         };
         
         const engine = await AntiBurnoutEngine.createForUser(user.id, userPreferences);
         setAntiBurnoutEngine(engine);
       } catch (error) {
-        console.error('Failed to initialize anti-burnout engine:', error);
-        // Fallback to default engine
+        console.error('Failed to initialize engines:', error);
+        // Fallback to default engines
         setAntiBurnoutEngine(new AntiBurnoutEngine(user.id));
+        
+        // Set default recommendations
+        setPersonalizedRecommendations({
+          nextMilestone: 100,
+          celebrationTrigger: 5,
+          fatigueWarningThreshold: 65,
+          breakInterval: 25,
+          breakDuration: 10,
+          sessionLengthRecommendation: 25,
+          optimalStudyTime: '9:00 AM',
+          difficultyAdjustment: 0.7
+        });
       }
     };
 
-    initializeAntiBurnout();
+    initializeEngines();
   }, [user?.id, user?.preferences]);
 
   // Load real cards from Supabase for this deck (only after authentication)
@@ -314,8 +340,9 @@ const StudySession: React.FC = () => {
         showSmartBreakPopup(breakSuggestion);
       }
       
-      // Show fatigue warning if score is getting high
-      if (fatigueIndicators.overallFatigueScore > 60 && fatigueIndicators.overallFatigueScore < 80) {
+      // Show fatigue warning using adaptive threshold
+      const fatigueThreshold = personalizedRecommendations?.fatigueWarningThreshold ?? 65;
+      if (fatigueIndicators.overallFatigueScore > fatigueThreshold && fatigueIndicators.overallFatigueScore < (fatigueThreshold + 15)) {
         showPopup({
           id: `fatigue-${Date.now()}`,
           type: 'fatigue_warning',
@@ -337,17 +364,18 @@ const StudySession: React.FC = () => {
   }, [currentCardIndex, currentCard, showAnswer]);
 
   useEffect(() => {
-    // Check for milestone celebrations (reduced frequency to avoid spam with fatigue monitoring)
-    if (sessionStats.cardsStudied > 0 && sessionStats.cardsStudied % 5 === 0) {
+    // Adaptive celebration frequency (replaces static every-5-cards)
+    const celebrationTrigger = personalizedRecommendations?.celebrationTrigger ?? 5;
+    if (sessionStats.cardsStudied > 0 && sessionStats.cardsStudied % celebrationTrigger === 0) {
       showPopup({
         id: Date.now().toString(),
         type: 'streak',
-        message: `${sessionStats.cardsStudied} cards completed!`,
+        message: `${sessionStats.cardsStudied} cards completed! Keep it up! 🚀`,
         emoji: '🔥',
         duration: 3000,
       });
     }
-  }, [sessionStats.cardsStudied]);
+  }, [sessionStats.cardsStudied, personalizedRecommendations?.celebrationTrigger]);
 
   const showPopup = (popup: PopupNotification) => {
     setPopups(prev => [...prev, popup]);
@@ -602,15 +630,17 @@ const StudySession: React.FC = () => {
       correctStreakRef.current = 0;
     }
 
+    // Adaptive streak celebration frequency
+    const streakCelebrationTrigger = personalizedRecommendations?.celebrationTrigger ?? 5;
     if (
       correctStreakRef.current > 0 &&
-      correctStreakRef.current % 5 === 0 &&
+      correctStreakRef.current % streakCelebrationTrigger === 0 &&
       lastCorrectStreakPopupRef.current !== correctStreakRef.current
     ) {
       showPopup({
         id: `correct-streak-${correctStreakRef.current}`,
         type: 'streak',
-        message: `🔥 ${correctStreakRef.current} correct in a row!`,
+        message: `🔥 ${correctStreakRef.current} correct in a row! Outstanding!`,
         emoji: '🔥',
         duration: 3000,
         priority: 'medium',
@@ -652,7 +682,7 @@ const StudySession: React.FC = () => {
     }));
 
     // ----------------------------------------------
-    // Milestone celebration – mastered cards
+    // Adaptive milestone celebration – mastered cards
     // ----------------------------------------------
     if (lastReviewResult?.success && lastReviewResult.transitions?.graduated) {
       const newTotal = masteredCount + 1;
@@ -662,12 +692,19 @@ const StudySession: React.FC = () => {
         showPopup({
           id: `milestone-${newTotal}`,
           type: 'improvement',
-          message: `🎉 ${nextMilestoneRef.current} cards mastered!`,
+          message: `🎉 ${nextMilestoneRef.current} cards mastered! Amazing progress!`,
           emoji: '🎉',
           duration: 4000,
           priority: 'high',
         });
-        nextMilestoneRef.current = milestoneThresholds.find(m => m > newTotal) || Infinity;
+        
+        // Update to next adaptive milestone
+        if (personalizedRecommendations?.nextMilestone) {
+          const milestones = personalizationEngine?.getRecommendations().nextMilestone;
+          nextMilestoneRef.current = milestones || (nextMilestoneRef.current + 250);
+        } else {
+          nextMilestoneRef.current = nextMilestoneRef.current + 250; // Fallback increment
+        }
       }
     }
 
@@ -683,6 +720,22 @@ const StudySession: React.FC = () => {
       // End session - save data and navigate to results
       const sessionData = calculateSessionData();
       await saveSessionToDatabase(sessionData);
+      
+      // Update personalization engine with session data
+      if (personalizationEngine) {
+        try {
+          await personalizationEngine.updateProfile({
+            cardsStudied: sessionStats.cardsStudied,
+            timeSpent: (new Date().getTime() - sessionStats.startTime.getTime()) / 1000,
+            retentionRate: sessionData.retentionRate,
+            fatigueScore: sessionData.fatigueScore || 0,
+            studyHour: new Date().getHours()
+          });
+        } catch (error) {
+          console.error('Failed to update personalization profile:', error);
+        }
+      }
+      
       navigate('/session-results', { state: { sessionData } });
     }
     } catch (error) {
@@ -706,6 +759,22 @@ const StudySession: React.FC = () => {
       // End session if this is the last card
       const sessionData = calculateSessionData();
       await saveSessionToDatabase(sessionData);
+      
+      // Update personalization engine with session data
+      if (personalizationEngine) {
+        try {
+          await personalizationEngine.updateProfile({
+            cardsStudied: sessionStats.cardsStudied,
+            timeSpent: (new Date().getTime() - sessionStats.startTime.getTime()) / 1000,
+            retentionRate: sessionData.retentionRate,
+            fatigueScore: sessionData.fatigueScore || 0,
+            studyHour: new Date().getHours()
+          });
+        } catch (error) {
+          console.error('Failed to update personalization profile:', error);
+        }
+      }
+      
       navigate('/session-results', { state: { sessionData } });
     }
   };
@@ -875,7 +944,15 @@ const StudySession: React.FC = () => {
 
         const total = count || 0;
         setMasteredCount(total);
-        nextMilestoneRef.current = milestoneThresholds.find(m => m > total) || Infinity;
+        
+        // Set next milestone using adaptive recommendations
+        if (personalizedRecommendations?.nextMilestone) {
+          nextMilestoneRef.current = personalizedRecommendations.nextMilestone;
+        } else {
+          // Fallback to calculated milestone
+          const defaultMilestones = [100, 250, 500, 1000, 1500, 2000];
+          nextMilestoneRef.current = defaultMilestones.find(m => m > total) || total + 500;
+        }
       } catch (err) {
         console.error('Unexpected error fetching mastered count:', err);
       }
@@ -1345,7 +1422,7 @@ const StudySession: React.FC = () => {
           {/* Recovery Protocol */}
           <RecoveryProtocol
             isVisible={showRecoveryProtocol}
-            breakDuration={antiBurnoutEngine.getSessionOptimization().recommendedBreakDuration}
+            breakDuration={antiBurnoutEngine?.getSessionOptimization()?.recommendedBreakDuration || 15}
             preFatigueScore={preBreakFatigueScore}
             onRecoveryComplete={handleRecoveryComplete}
             onSkip={handleSkipRecovery}
